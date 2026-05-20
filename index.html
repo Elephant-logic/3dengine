@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Browser 3D Engine</title>
+<style>
+* { box-sizing:border-box; margin:0; padding:0; }
+body { background:#08041a; color:rgba(255,255,255,0.85); font-family:monospace; padding:40px 24px; }
+h1 { font-size:22px; letter-spacing:4px; color:rgba(200,160,255,0.95); margin-bottom:6px; }
+h2 { font-size:11px; letter-spacing:3px; color:rgba(255,255,255,0.3); margin-bottom:32px; }
+h3 { font-size:10px; letter-spacing:3px; color:rgba(200,160,255,0.6); margin:28px 0 10px; border-bottom:1px solid rgba(255,255,255,0.06); padding-bottom:6px; }
+.grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(280px,1fr)); gap:12px; }
+.card {
+  background:rgba(255,255,255,0.04);
+  border:1px solid rgba(255,255,255,0.08);
+  border-radius:10px; padding:16px;
+}
+.card .name { font-size:10px; letter-spacing:2px; color:rgba(200,160,255,0.8); margin-bottom:4px; }
+.card .path { font-size:9px; color:rgba(255,255,255,0.3); margin-bottom:8px; font-style:italic; }
+.card .desc { font-size:10px; color:rgba(255,255,255,0.55); line-height:1.6; }
+.demo-link {
+  display:inline-block; margin-top:12px;
+  padding:8px 18px; border:1px solid rgba(200,160,255,0.4);
+  border-radius:6px; background:rgba(120,60,255,0.15);
+  color:rgba(200,160,255,0.9); text-decoration:none;
+  font-size:9px; letter-spacing:2px;
+}
+.demo-link:hover { background:rgba(120,60,255,0.3); }
+code { background:rgba(255,255,255,0.07); padding:1px 5px; border-radius:3px; font-size:9px; }
+</style>
+</head>
+<body>
+<h1>BROWSER 3D ENGINE</h1>
+<h2>WebGL · Full Rigid Body Physics · Entity/Component · Pure JS · No Dependencies</h2>
+
+<a href="demo/index.html" class="demo-link" style="font-size:12px;padding:12px 28px;">▶ LAUNCH DEMO</a>
+
+<h3>HOW TO USE</h3>
+<div style="font-size:10px;color:rgba(255,255,255,0.5);line-height:2;max-width:640px;">
+  1. Run a local server: <code>python3 -m http.server 8080</code><br>
+  2. Open <code>localhost:8080</code><br>
+  3. Import the engine in your HTML: <code>import { Engine, Vec3, ... } from './js/engine.js'</code><br>
+  4. Call <code>Engine.create('#canvas', { init, update })</code> and <code>game.start()</code>
+</div>
+
+<h3>MATH</h3>
+<div class="grid">
+  <div class="card">
+    <div class="name">Vec3</div><div class="path">js/math/vec3.js</div>
+    <div class="desc">3D vector. add, sub, scale, dot, cross, normalise, lerp, reflect, project, angle. Mutating *Self variants for hot loops.</div>
+  </div>
+  <div class="card">
+    <div class="name">Quat</div><div class="path">js/math/quat.js</div>
+    <div class="desc">Unit quaternion. fromAxisAngle, fromEuler, fromTo, slerp, mul, rotateVec, conjugate, toEuler. getForward/Up/Right axes.</div>
+  </div>
+  <div class="card">
+    <div class="name">Mat4</div><div class="path">js/math/mat4.js</div>
+    <div class="desc">Column-major 4×4 matrix. TRS, lookAt, perspective, orthographic, mul, inverse, transpose, transformPoint/Dir. WebGL-compatible Float32Array.</div>
+  </div>
+  <div class="card">
+    <div class="name">Ray, AABB, Colour</div><div class="path">js/math/primitives.js</div>
+    <div class="desc">Ray: intersect plane/sphere/AABB/triangle. AABB: contains, intersects, sdf, expand, transform. Colour: RGB/HSL/hex, lerp, gamma.</div>
+  </div>
+</div>
+
+<h3>PHYSICS</h3>
+<div class="grid">
+  <div class="card">
+    <div class="name">PhysicsWorld</div><div class="path">js/physics/world.js</div>
+    <div class="desc">Main simulation. createBody, removeBody, step(dt). Broadphase O(n²) → spatial hash. raycast, raycastAll, overlapSphere, isGrounded.</div>
+  </div>
+  <div class="card">
+    <div class="name">RigidBody</div><div class="path">js/physics/rigidbody.js</div>
+    <div class="desc">Full 6DOF. mass, restitution, friction, linearDamp, angularDamp. addForce, addTorque, addForceAtPoint, applyImpulse. Sleep system. Gyroscopic correction.</div>
+  </div>
+  <div class="card">
+    <div class="name">Shapes</div><div class="path">js/physics/shapes.js</div>
+    <div class="desc">SphereShape, BoxShape (OBB), CapsuleShape, PlaneShape. Each gives correct AABB and inertia tensor for its mass.</div>
+  </div>
+  <div class="card">
+    <div class="name">Collision</div><div class="path">js/physics/collision.js</div>
+    <div class="desc">Narrowphase: sphere-sphere, sphere-box, sphere-plane, box-box (SAT), box-plane, capsule-plane, capsule-sphere. Returns Contact with normal, depth, points.</div>
+  </div>
+  <div class="card">
+    <div class="name">Solver</div><div class="path">js/physics/solver.js</div>
+    <div class="desc">Sequential impulse with 8 iterations. Normal impulse (non-penetration + restitution). Coulomb friction on 2 tangent axes. Warm starting for stability.</div>
+  </div>
+  <div class="card">
+    <div class="name">Joints</div><div class="path">js/physics/joints.js</div>
+    <div class="desc">BallSocket (3DOF constrained), Hinge (1DOF free + motor + limits), Spring (stiffness + damping + break force), Distance (rigid rod).</div>
+  </div>
+</div>
+
+<h3>RENDERER</h3>
+<div class="grid">
+  <div class="card">
+    <div class="name">WebGL context</div><div class="path">js/renderer/webgl.js</div>
+    <div class="desc">WebGL2 context. compileShader, createProgram (auto-caches uniforms/attribs). VBO, IBO, VAO, textures, framebuffers. ShaderProgram wrapper with typed uniform setters.</div>
+  </div>
+  <div class="card">
+    <div class="name">Mesh</div><div class="path">js/renderer/mesh.js</div>
+    <div class="desc">Interleaved vertex buffer [pos, normal, uv]. Built-in generators: box, sphere(rings/sectors), cylinder, plane(subdivisions), capsule. fromArrays for custom geometry.</div>
+  </div>
+  <div class="card">
+    <div class="name">Shaders</div><div class="path">js/renderer/shaders.js</div>
+    <div class="desc">Blinn-Phong lit (4 point lights + directional sun), unlit flat/textured, sky gradient, debug wireframe, shadow depth pass. All GLSL 300 es.</div>
+  </div>
+  <div class="card">
+    <div class="name">Camera</div><div class="path">js/renderer/camera.js</div>
+    <div class="desc">Perspective and orthographic. View/projection/VP matrices. lookAt, rotateYaw/Pitch, moveForward/Right/Up. Frustum culling for AABB and spheres. Screen-to-world ray.</div>
+  </div>
+  <div class="card">
+    <div class="name">Renderer</div><div class="path">js/renderer/renderer.js</div>
+    <div class="desc">begin/end frame. drawMesh with frustum culling. Sky gradient. Lighting setup. Debug overlay: debugLine, debugAABB, debugSphere, debugAxes. Draw call stats.</div>
+  </div>
+  <div class="card">
+    <div class="name">Material</div><div class="path">js/renderer/renderer.js</div>
+    <div class="desc">colour, texture, shininess, metallic, roughness, unlit, transparent. Factory: Material.colour(r,g,b), Material.unlit(colour).</div>
+  </div>
+</div>
+
+<h3>GAME</h3>
+<div class="grid">
+  <div class="card">
+    <div class="name">Entity</div><div class="path">js/game/entity.js</div>
+    <div class="desc">Scene object with position/rotation/scale. addComponent, getComponent, removeComponent. Parent/child hierarchy with dirty propagation. start/update/lateUpdate/render lifecycle.</div>
+  </div>
+  <div class="card">
+    <div class="name">Component</div><div class="path">js/game/entity.js</div>
+    <div class="desc">Base class. Override: onAttach, onDetach, start, update(dt), lateUpdate(dt), render(renderer). Built-ins: MeshRenderer, RigidBodyComponent, CameraComponent, ScriptComponent.</div>
+  </div>
+  <div class="card">
+    <div class="name">Scene</div><div class="path">js/game/scene.js</div>
+    <div class="desc">createEntity, findByName, findByTag, findById. Drives entity lifecycle. Only updates root entities (children via hierarchy).</div>
+  </div>
+  <div class="card">
+    <div class="name">Input</div><div class="path">js/game/scene.js</div>
+    <div class="desc">keyboard (key codes), mouse (dx/dy, pointer lock), touch (multi-touch delta), gamepad (axes + buttons). moveX/moveZ/jump/sprint convenience axes.</div>
+  </div>
+  <div class="card">
+    <div class="name">Game</div><div class="path">js/game/scene.js</div>
+    <div class="desc">Main loop. Fixed physics timestep, variable render. Engine.create('#canvas', {init, update}) factory. showPhysics flag for debug overlay.</div>
+  </div>
+</div>
+
+<div style="margin-top:40px;font-size:9px;color:rgba(255,255,255,0.18);letter-spacing:2px;">
+  WebGL2 · ES Modules · No build step · No dependencies · Runs directly in browser
+</div>
+
+</body>
+</html>
