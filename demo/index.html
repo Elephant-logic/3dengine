@@ -1,0 +1,362 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Engine Demo — Physics Playground</title>
+<style>
+* { box-sizing:border-box; margin:0; padding:0; }
+body { background:#000; overflow:hidden; }
+canvas { display:block; width:100vw; height:100vh; }
+#ui {
+  position:fixed; top:16px; left:16px;
+  font-family:monospace; font-size:12px; color:rgba(255,255,255,0.7);
+  pointer-events:none; line-height:1.8;
+}
+#spawn {
+  position:fixed; bottom:24px; left:50%; transform:translateX(-50%);
+  display:flex; gap:8px;
+}
+#spawn button {
+  padding:10px 20px; font-family:monospace; font-size:11px; letter-spacing:2px;
+  border:1px solid rgba(255,255,255,0.3); border-radius:8px;
+  background:rgba(255,255,255,0.08); color:white; cursor:pointer;
+}
+#spawn button:hover { background:rgba(255,255,255,0.18); }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="ui">
+  <div>WASD — move</div>
+  <div>MOUSE — look (click to lock)</div>
+  <div>SPACE — jump</div>
+  <div>R — reset scene</div>
+  <div>F — toggle physics debug</div>
+  <div id="stats"></div>
+</div>
+<div id="spawn">
+  <button onclick="spawnSphere()">DROP SPHERE</button>
+  <button onclick="spawnBox()">DROP BOX</button>
+  <button onclick="spawnStack()">DROP STACK</button>
+  <button onclick="spawnExplosion()">EXPLOSION</button>
+</div>
+
+<script type="module">
+import {
+  Engine,
+  Vec3, Quat, Colour, AABB,
+  Mesh, Material, Camera,
+  SphereShape, BoxShape, PlaneShape, CapsuleShape,
+  PhysicsWorld,
+  HingeJoint, SpringJoint,
+  Entity, MeshRenderer, RigidBodyComponent, ScriptComponent,
+} from './js/engine.js';
+
+let game, scene, physics, renderer, input;
+let playerEntity, playerBody, playerCam;
+let yaw=0, pitch=0;
+
+// ── INIT ─────────────────────────────────────────────────────────────────
+const g = await Engine.create('#c', {
+  init(game){
+    scene    = game.scene;
+    physics  = game.physics;
+    renderer = game.renderer;
+    input    = game.input;
+
+    // Skybox colours — day scene
+    renderer.skyTop    = new Colour(0.1,  0.25, 0.55);
+    renderer.skyHorizon= new Colour(0.55, 0.65, 0.8);
+    renderer.skyBottom = new Colour(0.15, 0.12, 0.08);
+    renderer.sunDir    = new Vec3(0.4, 0.9, 0.3).normalise();
+    renderer.sunColour = new Colour(1.0, 0.95, 0.85);
+    renderer.sunIntensity = 1.3;
+    renderer.ambient   = new Colour(0.1, 0.12, 0.18);
+
+    buildScene(game);
+    buildPlayer(game);
+  },
+
+  update(game, dt){
+    handlePlayerMovement(dt, game);
+    updateStats(game);
+  },
+});
+
+g.showPhysics = false;
+g.start();
+
+// Make spawn functions global
+window.spawnSphere   = () => addSphere(g);
+window.spawnBox      = () => addBox(g);
+window.spawnStack    = () => addStack(g);
+window.spawnExplosion= () => addExplosion(g);
+
+// ── SCENE SETUP ──────────────────────────────────────────────────────────
+function buildScene(game){
+
+  // ── FLOOR ────────────────────────────────────────────────────────────────
+  {
+    const e = scene.createEntity('Floor');
+    const body = physics.createBody({ isStatic:true, shape:new PlaneShape() });
+    e.setPosition(new Vec3(0,0,0));
+    // Visual mesh — big grey plane
+    const mesh = Mesh.plane(40, 8).upload(game.gl);
+    const mat  = Material.colour(0.28, 0.30, 0.27);
+    e.addComponent(new MeshRenderer(mesh, mat));
+  }
+
+  // ── RAISED PLATFORM ──────────────────────────────────────────────────────
+  {
+    const e = scene.createEntity('Platform');
+    const half = new Vec3(5, 0.4, 5);
+    const body = physics.createBody({
+      isStatic:true,
+      shape: new BoxShape(half),
+      position: new Vec3(8,2,0),
+    });
+    const mesh = Mesh.box(half).upload(game.gl);
+    const mat  = Material.colour(0.4,0.35,0.3);
+    e.addComponent(new MeshRenderer(mesh, mat));
+    e.addComponent(new ScriptComponent({
+      update(dt){ e.setPosition(body.position); e.setRotation(body.orientation); }
+    }));
+  }
+
+  // ── RAMP ──────────────────────────────────────────────────────────────────
+  {
+    const e = scene.createEntity('Ramp');
+    const half=new Vec3(4, 0.2, 6);
+    const rot = Quat.fromAxisAngle(new Vec3(1,0,0), -0.4);
+    const body = physics.createBody({
+      isStatic:true,
+      shape: new BoxShape(half),
+      position: new Vec3(-8, 1.5, -5),
+    });
+    body.orientation=rot;
+    const mesh=Mesh.box(half).upload(game.gl);
+    const mat=Material.colour(0.35,0.4,0.3);
+    e.addComponent(new MeshRenderer(mesh,mat));
+    e.addComponent(new ScriptComponent({
+      update(){ e.setPosition(body.position); e.setRotation(body.orientation); }
+    }));
+  }
+
+  // ── PENDULUM ──────────────────────────────────────────────────────────────
+  {
+    const pivot = physics.createBody({ isStatic:true });
+    pivot.position=new Vec3(0,10,0);
+    const bob = physics.createBody({
+      shape: new SphereShape(0.6),
+      position: new Vec3(3, 7, 0),
+      mass: 2,
+    });
+    bob.restitution=0.4;
+
+    const joint=new SpringJoint(pivot,bob,new Vec3(0,0,0),new Vec3(0,0,0),3.5);
+    joint.stiffness=120; joint.damping=5;
+    physics._joints = physics._joints||[];
+    physics._joints.push(joint);
+
+    // Hook joints into physics step
+    const origStep=physics._step.bind(physics);
+    physics._step = (dt)=>{
+      origStep(dt);
+      for(const j of physics._joints||[]) j.solve(dt);
+    };
+
+    const e=scene.createEntity('Bob');
+    const mesh=Mesh.sphere(0.6).upload(game.gl);
+    const mat=Material.colour(1.0,0.5,0.1);
+    mat.metallic=0.6; mat.roughness=0.3; mat.shininess=80;
+    e.addComponent(new MeshRenderer(mesh,mat));
+    e.addComponent(new ScriptComponent({
+      update(){ e.setPosition(bob.position); }
+    }));
+  }
+
+  // ── SCATTER INITIAL OBJECTS ───────────────────────────────────────────────
+  for(let i=0;i<8;i++){
+    const pos=new Vec3((Math.random()-0.5)*14, 3+Math.random()*5, (Math.random()-0.5)*14);
+    if(i%2===0) addSphereAt(game, pos);
+    else        addBoxAt(game, pos);
+  }
+}
+
+// ── PLAYER ───────────────────────────────────────────────────────────────
+function buildPlayer(game){
+  playerEntity = scene.createEntity('Player');
+  playerEntity.setPosition(new Vec3(0, 3, 8));
+
+  const shape = new CapsuleShape(0.4, 0.7);
+  const body  = physics.createBody({
+    mass:     70,
+    shape,
+    position: playerEntity.position.clone(),
+    friction: 0.1,
+    restitution: 0.0,
+  });
+  body.gravityScale    = 1;
+  body.angularDamp     = 1.0; // player shouldn't spin
+  body._localInvInertia = new Vec3(0,0,0); // lock rotation
+  playerBody = body;
+
+  game.camera.setPosition(playerEntity.position.add(new Vec3(0,0.8,0)));
+  game.camera.setAspect(game.canvas.width/game.canvas.height);
+}
+
+// ── PLAYER MOVEMENT ───────────────────────────────────────────────────────
+const MOVE_SPEED   = 6;
+const SPRINT_SPEED = 12;
+const JUMP_FORCE   = 400;
+let canJump = false;
+
+function handlePlayerMovement(dt, game){
+  if(!playerBody) return;
+  const cam = game.camera;
+  const inp = game.input;
+
+  // Look
+  yaw   -= inp.mouseDX * 0.002;
+  pitch -= inp.mouseDY * 0.002;
+  pitch  = Math.max(-1.4, Math.min(1.4, pitch));
+  cam.orientation = Quat.fromEuler(pitch, yaw, 0);
+
+  // Move — project onto horizontal plane
+  const forward = new Vec3(-Math.sin(yaw), 0, -Math.cos(yaw));
+  const right   = new Vec3( Math.cos(yaw), 0, -Math.sin(yaw));
+  const speed   = inp.sprint ? SPRINT_SPEED : MOVE_SPEED;
+
+  const moveDir = forward.scale(-inp.moveZ).add(right.scale(inp.moveX));
+  if(moveDir.lengthSq()>0.01){
+    const mv=moveDir.normalise().scale(speed);
+    const current=playerBody.linearVelocity;
+    // Dampen horizontal velocity, apply desired
+    playerBody.linearVelocity=new Vec3(
+      current.x*0.75+mv.x*0.25*60*dt,
+      current.y,
+      current.z*0.75+mv.z*0.25*60*dt
+    );
+    playerBody.wake();
+  } else {
+    // Friction
+    playerBody.linearVelocity=new Vec3(
+      playerBody.linearVelocity.x*Math.pow(0.2,dt),
+      playerBody.linearVelocity.y,
+      playerBody.linearVelocity.z*Math.pow(0.2,dt)
+    );
+  }
+
+  // Ground check
+  canJump = physics.isGrounded(playerBody);
+  if(inp.jump && canJump){
+    playerBody.linearVelocity.y=0;
+    playerBody.applyLinearImpulse(new Vec3(0, JUMP_FORCE*dt, 0));
+  }
+
+  // Sync body → player entity → camera
+  playerBody.integrateVelocities(0); // don't double-integrate, just sync
+  const head = playerBody.position.add(new Vec3(0, 0.8, 0));
+  playerEntity.setPosition(playerBody.position);
+  cam.setPosition(head);
+
+  // R — reset scene
+  if(inp.key('KeyR')) resetScene(game);
+  // F — toggle debug
+  if(inp.key('KeyF')){ game.showPhysics=!game.showPhysics; }
+}
+
+// ── SPAWN HELPERS ─────────────────────────────────────────────────────────
+function addSphereAt(game, pos, radius=0.4+Math.random()*0.3){
+  const e=scene.createEntity('Sphere');
+  const body=physics.createBody({
+    mass:1+Math.random()*3,
+    shape:new SphereShape(radius),
+    position:pos,
+    restitution:0.4+Math.random()*0.5,
+    friction:0.5,
+  });
+  const mesh=Mesh.sphere(radius).upload(game.gl);
+  const hue=Math.random()*360;
+  const mat=Material.colour(...Colour.fromHSL(hue,0.7,0.55).toArray());
+  mat.metallic=Math.random()*0.8;
+  mat.roughness=0.2+Math.random()*0.6;
+  mat.shininess=16+Math.random()*96;
+  e.addComponent(new MeshRenderer(mesh,mat));
+  e.addComponent(new ScriptComponent({ update(){ e.setPosition(body.position); e.setRotation(body.orientation); } }));
+  return e;
+}
+
+function addBoxAt(game, pos, half=new Vec3(0.3+Math.random()*0.3,0.3+Math.random()*0.3,0.3+Math.random()*0.3)){
+  const e=scene.createEntity('Box');
+  const body=physics.createBody({
+    mass:2+Math.random()*5,
+    shape:new BoxShape(half),
+    position:pos,
+    restitution:0.2+Math.random()*0.3,
+    friction:0.6,
+  });
+  const mesh=Mesh.box(half).upload(game.gl);
+  const hue=Math.random()*360;
+  const mat=Material.colour(...Colour.fromHSL(hue,0.6,0.5).toArray());
+  mat.metallic=Math.random()*0.6;
+  mat.roughness=0.3+Math.random()*0.5;
+  e.addComponent(new MeshRenderer(mesh,mat));
+  e.addComponent(new ScriptComponent({ update(){ e.setPosition(body.position); e.setRotation(body.orientation); } }));
+  return e;
+}
+
+function addSphere(game){
+  const ahead=game.camera.position.add(game.camera.forward.scale(3));
+  addSphereAt(game,ahead);
+}
+function addBox(game){
+  const ahead=game.camera.position.add(game.camera.forward.scale(3));
+  addBoxAt(game,ahead);
+}
+function addStack(game){
+  for(let i=0;i<6;i++) addBoxAt(game, new Vec3(
+    (Math.random()-0.5)*0.5, 1+i*1.1, (Math.random()-0.5)*0.5
+  ), new Vec3(0.5,0.5,0.5));
+}
+function addExplosion(game){
+  const centre=game.camera.position.add(game.camera.forward.scale(5));
+  for(let i=0;i<12;i++){
+    const pos=centre.add(new Vec3((Math.random()-0.5)*2,(Math.random()-0.5)*2,(Math.random()-0.5)*2));
+    const e=Math.random()<0.5?addSphereAt(game,pos):addBoxAt(game,pos);
+    // Apply outward impulse
+    const body=physics.bodies[physics.bodies.length-1];
+    if(body){
+      const dir=pos.sub(centre).normalise();
+      body.applyLinearImpulse(dir.scale(12+Math.random()*8));
+    }
+  }
+}
+
+function resetScene(game){
+  // Remove all dynamic bodies
+  const toRemove=[...physics.bodies.filter(b=>!b.isStatic)];
+  for(const b of toRemove) physics.removeBody(b);
+  // Remove non-floor entities
+  const toDestroy=scene._entities.filter(e=>e.name!=='Floor'&&e.name!=='Platform'&&e.name!=='Ramp'&&e.name!=='Bob'&&e.name!=='Player');
+  for(const e of toDestroy) e.destroy();
+  buildPlayer(game);
+  // Scatter fresh objects
+  for(let i=0;i<8;i++){
+    const pos=new Vec3((Math.random()-0.5)*14,3+Math.random()*5,(Math.random()-0.5)*14);
+    if(i%2===0) addSphereAt(game,pos); else addBoxAt(game,pos);
+  }
+}
+
+function updateStats(game){
+  const el=document.getElementById('stats');
+  if(el) el.textContent=
+    `Bodies: ${physics.bodies.length}  ` +
+    `Contacts: ${physics._contacts.length}  ` +
+    `Draws: ${game.renderer.stats.draws}  Culled: ${game.renderer.stats.culled}  ` +
+    `Debug: ${game.showPhysics?'ON':'OFF'} (F)`;
+}
+</script>
+</body>
+</html>
