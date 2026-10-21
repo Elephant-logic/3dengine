@@ -3,9 +3,12 @@
   "version": "1.0.0",
   "private": true,
   "engines": {
-    "node": ">=20"
+    "node": ">=20 <27"
   },
   "scripts": {
     "start": "node server.js"
+  },
+  "dependencies": {
+    "three": "0.160.1"
   }
 }
