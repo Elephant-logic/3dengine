@@ -126,6 +126,28 @@ async function readBody(req) {
 async function handle(req, res) {
   const pathname = (req.url || '').split('?')[0];
   if (req.method === 'OPTIONS') return reply(res, 204, {});
+
+  // Same-origin Three.js/GLTFLoader modules. The mobile viewer needs no CDN.
+  if (req.method === 'GET' && pathname.startsWith('/vendor/')) {
+    const rel = pathname.slice('/vendor/'.length);
+    if (!/^[A-Za-z0-9_./-]+\.js$/.test(rel) || rel.split('/').includes('..')) {
+      return reply(res, 404, {error:'Unknown viewer module'});
+    }
+    let resolved;
+    const modroot=path.join(__dirname,'node_modules','three');
+    if (rel==='three.module.js') resolved=path.join(modroot,'build','three.module.js');
+    else if (rel.startsWith('examples/jsm/')) resolved=path.join(modroot,rel);
+    else return reply(res,404,{error:'Unknown viewer module'});
+    const allowed=path.resolve(modroot);
+    resolved=path.resolve(resolved);
+    if (!resolved.startsWith(allowed+path.sep))return reply(res,404,{error:'Unknown viewer module'});
+    try {
+      const data=fs.readFileSync(resolved);
+      res.writeHead(200,{'content-type':'text/javascript; charset=utf-8','cache-control':'public,max-age=86400','x-content-type-options':'nosniff','access-control-allow-origin':'*'});
+      return res.end(data);
+    } catch {return reply(res,404,{error:'Viewer module not found'});}
+  }
+
   if (req.method === 'GET' && (pathname === '/' || pathname === '/index.html')) {
     res.writeHead(200, {
       'content-type':'text/html; charset=utf-8',
