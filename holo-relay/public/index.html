@@ -864,6 +864,44 @@ window.addEventListener('beforeunload',()=>{if(st.url)URL.revokeObjectURL(st.url
  window.HoloMesh22={request:meshRequest,poll:meshPoll};
 }
 
+
+{
+ const oldHandler=$('ai17generate').onclick;
+ $('ai17generate').onclick=async function(){
+  if($('ai17provider').value!=='meshy-multi')return oldHandler.call(this);
+  if(st.busy)return;
+  if(!['video','cutouts'].includes(st.sourceKind))return fail(Error('Upload real video, crop an object and extract frames first'));
+  if(st.sourceKind==='video'&&st.sampledFrom!==st.sourceId)return fail(Error('Extract fresh frames from this video'));
+  if(st.sourceKind==='video'&&!st.roi&&!$('ai19whole').checked)return fail(Error('Crop the object or allow whole frame in SOURCE'));
+  const ids=window.HoloFrames22.selectedFrames();
+  if(ids.length<2||ids.length>4)return fail(Error('Select 2–4 frames showing different views of the same object'));
+  if(ids.some(i=>st.models[i]?.task_id))return fail(Error('A checked frame already has a job; recover it instead of regenerating'));
+  if(!ids.every(i=>usableFrame(st.frames[i].image)))return fail(Error('A selected source frame is blank'));
+  const key=$('ai22meshKey').value.trim();
+  if(!key)return fail(Error('Meshy Multi needs a Meshy Developer API key, not a PiAPI key'));
+  if(!$('ai17approve').checked)return fail(Error('Tick the paid-job approval checkbox'));
+  if(!confirm('Generate ONE Meshy Multi model from '+ids.length+' angles? This uses separate Meshy credits and does not animate moving frames. Approve?'))return;
+  st.busy=true;$('ai17generate').disabled=true;$('ai17cancel').disabled=false;st.cancel=false;
+  try{
+   const result=await window.HoloMesh22.request('/relay/meshy/multi',key,{
+    image_urls:ids.map(i=>st.frames[i].image.toDataURL('image/jpeg',.8)),
+    should_texture:$('ai22texture').checked,should_remesh:$('ai22remesh').checked,target_formats:['glb']
+   });
+   const id=result.result||result.id;
+   if(!id||!taskIdPattern.test(id))throw Error('Meshy returned no valid task ID');
+   const i=ids[0];st.models[i]={engine:'meshy-multi',model:'meshy-multi',task_id:id,state:'processing',url:null,time:st.frames[i].time,views:ids};
+   st.jobIds.push(id);modelsList();log('Meshy Multi task accepted: '+id+'; this is ONE 3D model, not a frame sequence.');
+   try{
+    st.models[i].url=await window.HoloMesh22.poll(id,key);st.models[i].state='ready';
+    await showGeneratedModel(i,$('ai17piapi').value.trim());
+    log('Meshy multi-image GLB loaded into the 3D player. No second paid generation.');
+   }catch(e){st.models[i].state='pending / recover task';log('Meshy task '+id+': '+e.message)}
+   modelsList();modeTab('models');
+  }catch(e){fail(e)}
+  finally{st.busy=false;$('ai17generate').disabled=false;$('ai17cancel').disabled=true;$('ai17approve').checked=false}
+ };
+}
+
 engineChanged();
 })();
 
