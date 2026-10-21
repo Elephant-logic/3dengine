@@ -178,7 +178,7 @@ async function handle(req, res) {
       const taskResult = await check.json();
       const task = taskResult.data || taskResult;
       const modelFile = task.output?.model_file || task.output?.model_url || task.output?.glb;
-      if (task.status !== 'completed' || typeof modelFile !== 'string') {
+      if (!['completed','success'].includes(String(task.status||'').toLowerCase()) || typeof modelFile !== 'string') {
         return reply(res, 409, { error: 'Task is not completed or has no GLB file' });
       }
       let modelURL;
