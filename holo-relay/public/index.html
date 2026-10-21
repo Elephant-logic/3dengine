@@ -604,7 +604,7 @@ makeH();requestAnimationFrame(tick);
 #ai17 .ai19info{color:#9bcfd5;font-size:12px;line-height:1.5;margin:8px 0}
 </style>
 <div id="ai17" role="region" aria-label="Holo Room V17 AI 3D sequence studio">
- <div class="aheader"><div style="font-size:24px;color:#7cffe3;font-weight:900">4D✦</div><div><small>HOLO ROOM / 018</small><div class="heading">VIDEO → 3D → 4D</div></div><span style="flex:1"></span><button id="ai17back">↩ TIME CUBE</button></div>
+ <div class="aheader"><div style="font-size:24px;color:#7cffe3;font-weight:900">4D✦</div><div><small>HOLO ROOM / 020</small><div class="heading">VIDEO → 3D → 4D</div></div><span style="flex:1"></span><button id="ai17back">↩ TIME CUBE</button></div>
  <div class="abody">
   <div class="aview">
    <div class="astage" id="ai17stage"><canvas id="ai17three"></canvas><img id="ai17frame" alt="Selected source frame"/><div class="astamp" id="ai17stamp">READY / LOAD VIDEO OR EXISTING CUTOUTS</div></div>
@@ -662,12 +662,12 @@ function showFrames(){const thumbs=$('ai17thumbs');thumbs.innerHTML='';for(let i
  $('ai17scrub').max=Math.max(0,st.frames.length-1);$('ai17scrub').value=0;showIndex(0);}
 function showIndex(ix){st.index=clamp(+ix|0,0,Math.max(0,st.frames.length-1));const f=st.frames[st.index];$('ai17counter').textContent=(st.frames.length?st.index+1:0)+' / '+st.frames.length;$('ai17clock').textContent=tclock(f?.time||0);$('ai17scrub').value=st.index;root.querySelectorAll('#ai17thumbs button').forEach((b,i)=>b.classList.toggle('sel',i===st.index));render();}
 function render(){const f=st.frames[st.index]||st.previewFrame,model=st.models[st.index];$('ai17frame').src=f?.preview||'';
- const want3d=$('ai17view').value==='3d'&&model?.url;
+ const previewGLB=model?.localUrl||(model?.local?model?.url:null); const want3d=$('ai17view').value==='3d'&&!!previewGLB;
  $('ai17frame').style.display=want3d?'none':'block';$('ai17three').style.display=want3d?'block':'none';
- stamp(want3d?'AI 3D MODEL '+(st.index+1)+' / '+st.frames.length:st.frames.length?'SOURCE FRAME '+(st.index+1)+' / '+st.frames.length:st.previewFrame?'VIDEO PREVIEW ONLY — EXTRACT FRAMES FIRST':'LOAD A VIDEO OR USE THE DEMO');
- if(want3d){if(window.HoloThree17?.show)window.HoloThree17.show(model.url,{scale:+$('ai17scale').value/100,path:$('ai17path').checked,coords:st.frames.map(f=>f.box||null),index:st.index}).catch(e=>{fail(e);$('ai17view').value='source';render()});else{stamp('3D VIEWER IS LOADING…');setTimeout(()=>{if(window.HoloThree17?.show)render();else{stamp('3D VIEWER UNAVAILABLE / SHOWING SOURCE');$('ai17view').value='source';render()}},1200)}}
+ stamp(want3d?'AI 3D MODEL '+(st.index+1)+' / '+st.frames.length:model?.url?'3D READY — TAP OPEN GLB TO LOAD':st.frames.length?'SOURCE FRAME '+(st.index+1)+' / '+st.frames.length:st.previewFrame?'VIDEO PREVIEW ONLY — EXTRACT FRAMES FIRST':'LOAD A VIDEO OR USE THE DEMO');
+ if(want3d){if(window.HoloThree17?.show)window.HoloThree17.show(previewGLB,{scale:+$('ai17scale').value/100,path:$('ai17path').checked,coords:st.frames.map(f=>f.box||null),index:st.index}).catch(e=>{fail(e);$('ai17view').value='source';render()});else{stamp('3D VIEWER IS LOADING…');let tries=0;const retry=()=>{if($('ai17view').value!=='3d'||!root.classList.contains('open'))return;if(window.HoloThree17?.show)render();else if(++tries<24)setTimeout(retry,500);else stamp('3D VIEWER SCRIPTS DID NOT LOAD — CHECK CONNECTION')};setTimeout(retry,500)}}
 }
-function modelsList(){const div=$('ai17modelsList');div.replaceChildren();for(let i=0;i<st.frames.length;i++){const f=st.frames[i],m=st.models[i],row=document.createElement('div');row.className='modelitem';row.innerHTML='<img alt="frame"/><div></div>';row.querySelector('img').src=f.preview;const cell=row.querySelector('div');cell.textContent='Frame '+(i+1)+' · '+(m?.state||'not generated');if(m?.task_id){const p=document.createElement('div');p.className='small';p.textContent='Task '+m.task_id.slice(0,8)+'…';cell.appendChild(p)}let action=document.createElement('button');action.textContent=m?.url?'OPEN GLB':'SELECT';if(m?.url){action.onclick=()=>{showIndex(i);$('ai17view').value='3d';render()};const a=document.createElement('a');a.href=m.url;a.target='_blank';a.rel='noopener noreferrer';a.textContent='Model link ↗';cell.appendChild(a)}else action.onclick=()=>{showIndex(i);modeTab('generate')};row.appendChild(action);div.appendChild(row)}}
+function modelsList(){const div=$('ai17modelsList');div.replaceChildren();for(let i=0;i<st.frames.length;i++){const f=st.frames[i],m=st.models[i],row=document.createElement('div');row.className='modelitem';row.innerHTML='<img alt="frame"/><div></div>';row.querySelector('img').src=f.preview;const cell=row.querySelector('div');cell.textContent='Frame '+(i+1)+' · '+(m?.state||'not generated');if(m?.task_id){const p=document.createElement('div');p.className='small';p.textContent='Task '+m.task_id.slice(0,8)+'…';cell.appendChild(p)}let action=document.createElement('button');action.textContent=m?.url?'OPEN GLB':'SELECT';if(m?.url){action.onclick=async()=>{action.disabled=true;action.textContent='LOADING…';try{await showGeneratedModel(i,$('ai17piapi').value.trim())}catch(e){fail(e);modeTab('models')}finally{action.disabled=false;action.textContent='OPEN GLB'}};const a=document.createElement('a');a.href=m.url;a.target='_blank';a.rel='noopener noreferrer';a.textContent='Model link ↗';cell.appendChild(a)}else action.onclick=()=>{showIndex(i);modeTab('generate')};row.appendChild(action);div.appendChild(row)}}
 function reload(){showFrames();modelsList();}
 $('ai17scrub').oninput=e=>{st.playing=false;showIndex(+e.target.value)};$('ai17prev').onclick=()=>{st.playing=false;showIndex(st.index-1)};$('ai17next').onclick=()=>{st.playing=false;showIndex(st.index+1)};
 $('ai17play').onclick=()=>{if(!st.frames.length)return;st.playing=!st.playing;if(st.playing&&st.index>=st.frames.length-1)showIndex(0);$('ai17play').textContent=st.playing?'Ⅱ PAUSE':'▶ PLAY 4D'};
@@ -677,7 +677,7 @@ $('ai17choose').onclick=()=>$('ai17file').click();
 const cropOverlay=$('ai19mark'),cropBox=$('ai19rect');let dragCrop=null;
 function resetSampledFrames(){
  if(st.models.some(m=>m?.task_id||m?.url)&&!window.confirm('Changing the source/crop will detach existing 3D jobs from the timeline. Save the job manifest and GLB links first. Continue?'))return false;
- st.frames=[];st.models=[];st.sampledFrom=null;st.playing=false;reload();return true;
+ st.models.forEach(m=>{if(m?.localUrl)URL.revokeObjectURL(m.localUrl)});st.frames=[];st.models=[];st.sampledFrom=null;st.playing=false;reload();return true;
 }
 function updateCropUI(){
  const q=st.roi;cropBox.style.display=q?'block':'none';
@@ -748,12 +748,46 @@ async function piUpload(image,i,key){const data=image.toDataURL('image/jpeg',.84
 const taskIdPattern=/^[a-zA-Z0-9-]{12,120}$/;
 async function piStart(url,key,provider){const r=await api('https://api.piapi.ai/api/v1/task',{'Content-Type':'application/json','x-api-key':key},{model:'Qubico/'+provider,task_type:'image-to-3d',input:{image:url,seed:0}});const id=r.task_id||r.id;if(!id||!taskIdPattern.test(id))throw Error('PiAPI returned no task ID');return id}
 async function piPoll(id,key,attempts=64){for(let j=0;j<attempts;j++){const r=await api('https://api.piapi.ai/api/v1/task/'+encodeURIComponent(id),{'x-api-key':key});const stat=(r.status||'').toLowerCase();if(stat==='completed'||stat==='success'){const url=r.output?.model_file||r.output?.model_url||r.output?.glb;if(!url||!/^https:\/\//.test(url))throw Error('Completed but no GLB model_file URL returned');return url}if(['failed','error','cancelled'].includes(stat))throw Error('TRELLIS task failed: '+(r.error?.message||r.detail||stat));if(j%3===0)log('  Task '+id.slice(0,8)+' · '+(stat||'processing'));await wait(4000)}throw Error('Task still processing after timeout. Keep task ID from manifest and check PiAPI later.')}
+async function piDownloadGLB(i,key){
+ const m=st.models[i];
+ if(!m?.task_id)throw Error('No PiAPI task ID for this frame');
+ if(m.localUrl)return m.localUrl;
+ if(!key)throw Error('Enter your PiAPI key in AI 3D; retrieving an existing model costs no generation credits');
+ const base=relayBase()||location.origin;
+ const token=$('ai18relayToken').value.trim();
+ if(base!==location.origin&&!token)throw Error('External relay requires its private token');
+ const h={'content-type':'application/json','x-api-key':key};
+ if(token)h['x-holo-relay-token']=token;
+ const response=await fetch(base+'/relay/piapi/glb',{method:'POST',headers:h,body:JSON.stringify({task_id:m.task_id}),cache:'no-store'});
+ if(!response.ok){let message='';try{const j=await response.json();message=j.error||j.message||''}catch{}throw Error('GLB retrieval HTTP '+response.status+(message?' — '+message:''))}
+ const blob=await response.blob();
+ if(blob.size<12)throw Error('Downloaded GLB is empty');
+ const magic=await blob.slice(0,4).text();
+ if(magic!=='glTF')throw Error('Returned data is not a GLB model');
+ if(m.localUrl)URL.revokeObjectURL(m.localUrl);
+ m.localUrl=URL.createObjectURL(new Blob([blob],{type:'model/gltf-binary'}));
+ m.state='ready · on phone';
+ modelsList();
+ return m.localUrl;
+}
+async function showGeneratedModel(i,key){
+ const m=st.models[i];
+ if(!m?.url)return;
+ if(m.task_id&&!m.localUrl){
+   log('Frame '+(i+1)+': downloading completed GLB to 4D player (no new generation)…');
+   await piDownloadGLB(i,key);
+   log('Frame '+(i+1)+': ✓ 3D file transferred to phone');
+ }
+ $('ai17view').value='3d';
+ modeTab('models');
+ showIndex(i);
+}
 $('ai17generate').onclick=async()=>{if(st.busy)return;if(!st.frames.length)return fail(Error('Extract frames from your video first'));if(st.sourceKind==='demo')return fail(Error('DEMO frames are synthetic. Paid jobs are disabled for demos; upload a real video first.'));if(st.sourceKind==='video'&&st.sampledFrom!==st.sourceId)return fail(Error('Video selection changed: extract fresh frames before paying.'));if(st.sourceKind==='video'&&!st.roi&&!$('ai19whole').checked)return fail(Error('Select CROP SUBJECT around the person/object, or explicitly allow the whole scene in SOURCE.'));if(!st.frames.every(f=>usableFrame(f.image)))return fail(Error('A selected frame is blank or almost uniform. Seek to a visible moment and extract again.'));if(!$('ai17approve').checked)return fail(Error('Tick the generation approval checkbox first'));const key=$('ai17piapi').value.trim();if(!key)return fail(Error('Enter your PiAPI key locally'));const provider=$('ai17provider').value,cap=Math.min(+$('ai17limit').value,st.frames.length);let indices=st.frames.map((_,i)=>i).filter(i=>!st.models[i]?.url).slice(0,cap);if(!indices.length)return log('All selected frames already have models.');if(!window.confirm('Generate '+indices.length+' model(s) from '+st.sourceKind.toUpperCase()+(st.roi?' cropped SUBJECT':' full frame')+'? Review the large SOURCE preview first. Estimated cost ~$'+(indices.length*(provider==='trellis2'?.10:.04)).toFixed(2)+'. Continue with paid jobs?'))return;
- st.busy=true;st.cancel=false;$('ai17generate').disabled=true;$('ai17cancel').disabled=false;let done=0;try{for(const i of indices){if(st.cancel)break;log('Frame '+(i+1)+': uploading JPEG…');let imageUrl;try{imageUrl=await piUpload(st.frames[i].image,i,key)}catch(e){throw Error('Upload failed for frame '+(i+1)+': '+e.message)}if(st.cancel)break;log('Frame '+(i+1)+': requesting '+provider+'…');const task_id=await piStart(imageUrl,key,provider);st.models[i]={state:'processing',task_id,url:null,model:provider,time:st.frames[i].time};st.jobIds.push(task_id);modelsList();log('Frame '+(i+1)+': task '+task_id+' accepted. This may use credits.');try{const url=await piPoll(task_id,key);st.models[i].url=url;st.models[i].state='ready';log('Frame '+(i+1)+': ✓ 3D model ready')}catch(e){st.models[i].state='task pending / check PiAPI';log('Frame '+(i+1)+': '+e.message);break}done++;$('ai17jobbar').style.width=Math.round(done/indices.length*100)+'%';modelsList()}
- if(done)modeTab('models');log('Finished: '+done+' model(s) ready. Save your manifest and download model GLBs while links work.');}
+ st.busy=true;st.cancel=false;$('ai17generate').disabled=true;$('ai17cancel').disabled=false;let done=0;try{for(const i of indices){if(st.cancel)break;log('Frame '+(i+1)+': uploading JPEG…');let imageUrl;try{imageUrl=await piUpload(st.frames[i].image,i,key)}catch(e){throw Error('Upload failed for frame '+(i+1)+': '+e.message)}if(st.cancel)break;log('Frame '+(i+1)+': requesting '+provider+'…');const task_id=await piStart(imageUrl,key,provider);st.models[i]={state:'processing',task_id,url:null,model:provider,time:st.frames[i].time};st.jobIds.push(task_id);modelsList();log('Frame '+(i+1)+': task '+task_id+' accepted. This may use credits.');try{const url=await piPoll(task_id,key);st.models[i].url=url;st.models[i].state='ready';log('Frame '+(i+1)+': ✓ 3D model ready');try{await showGeneratedModel(i,key)}catch(viewError){st.models[i].state='ready · tap OPEN GLB';log('Frame '+(i+1)+': model was generated, but 4D preview is not loaded — '+viewError.message)}}catch(e){st.models[i].state='task pending / check PiAPI';log('Frame '+(i+1)+': '+e.message);break}done++;$('ai17jobbar').style.width=Math.round(done/indices.length*100)+'%';modelsList()}
+ if(done){modeTab('models');const latest=indices.slice().reverse().find(i=>st.models[i]?.localUrl);if(latest!==undefined){$('ai17view').value='3d';showIndex(latest)}}log('Finished: '+done+' model(s) ready. Save your manifest and download model GLBs while links work.');}
  catch(e){fail(e)}finally{st.busy=false;$('ai17generate').disabled=false;$('ai17cancel').disabled=true;st.cancel=false;$('ai17approve').checked=false}};
 $('ai17cancel').onclick=()=>{st.cancel=true;log('Stop requested — current server task may continue and consume credits. No new task will be submitted.')};
-$('ai17resume').onclick=async()=>{if(st.busy)return;const id=$('ai17resumeId').value.trim(),key=$('ai17piapi').value.trim();if(!taskIdPattern.test(id))return fail(Error('Enter the PiAPI task ID from your manifest'));if(!key)return fail(Error('Enter your PiAPI key in the AI 3D tab (not stored).'));if(!st.frames.length)return fail(Error('Load your source frames first to preserve timeline alignment'));st.busy=true;$('ai17resume').disabled=true;try{log('Checking existing task '+id+' for frame '+(st.index+1)+'…');const url=await piPoll(id,key,16);st.models[st.index]={url,task_id:id,state:'ready · recovered'};modelsList();log('Task recovered. Download its GLB soon.')}catch(e){fail(e)}finally{st.busy=false;$('ai17resume').disabled=false}};
+$('ai17resume').onclick=async()=>{if(st.busy)return;const id=$('ai17resumeId').value.trim(),key=$('ai17piapi').value.trim();if(!taskIdPattern.test(id))return fail(Error('Enter the PiAPI task ID from your manifest'));if(!key)return fail(Error('Enter your PiAPI key in the AI 3D tab (not stored).'));if(!st.frames.length)return fail(Error('Load your source frames first to preserve timeline alignment'));st.busy=true;$('ai17resume').disabled=true;try{log('Checking existing task '+id+' for frame '+(st.index+1)+'…');const url=await piPoll(id,key,16);st.models[st.index]={url,task_id:id,state:'ready · recovered'};modelsList();await showGeneratedModel(st.index,key);log('Task recovered and loaded into 4D player; no new generation charge.')}catch(e){fail(e)}finally{st.busy=false;$('ai17resume').disabled=false}};
 $('ai17modelsInputBtn').onclick=()=>$('ai17modelsInput').click();
 $('ai17modelsInput').onchange=e=>{const files=[...e.target.files];if(!files.length)return;if(st.frames.length<files.length){for(let i=st.frames.length;i<files.length;i++){const c=mkcanvas(320,180),x=c.getContext('2d');x.fillStyle='#082232';x.fillRect(0,0,320,180);x.fillStyle='#a7ffe8';x.font='bold 22px monospace';x.fillText('FRAME '+(i+1),75,90);st.frames.push(addFrame(c,i,'model import'))}}for(let i=0;i<files.length;i++){const f=files[i];if(!f.name.toLowerCase().endsWith('.glb'))continue;const old=st.models[i];if(old?.local&&old.url)URL.revokeObjectURL(old.url);st.models[i]={url:URL.createObjectURL(f),state:'local GLB',local:true,fileName:f.name}}reload();modeTab('models');$('ai17view').value='3d';render();e.target.value=''};
 function saveFile(text,name,type='application/json'){const url=URL.createObjectURL(new Blob([text],{type}));const a=document.createElement('a');a.href=url;a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(url),15000)}
