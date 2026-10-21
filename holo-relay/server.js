@@ -2,6 +2,10 @@
 // Holo Room V18 — fixed-route relay. API keys are forwarded in memory only.
 const http = require('node:http');
 const crypto = require('node:crypto');
+const fs = require('node:fs');
+const path = require('node:path');
+const hostedPage = fs.readFileSync(path.join(__dirname, 'public', 'index.html'));
+const HOST_ORIGIN = 'https://holo-room-piapi-relay.onrender.com';
 
 const ROUTES = [
   { match: /^\/relay\/piapi\/upload$/, method: 'POST', target: () => 'https://upload.theapi.app/api/ephemeral_resource', kind: 'piapi' },
@@ -46,12 +50,32 @@ async function readBody(req) {
 async function handle(req, res) {
   const pathname = (req.url || '').split('?')[0];
   if (req.method === 'OPTIONS') return reply(res, 204, {});
+  if (req.method === 'GET' && (pathname === '/' || pathname === '/index.html')) {
+    res.writeHead(200, {
+      'content-type':'text/html; charset=utf-8',
+      'cache-control':'no-cache',
+      'x-content-type-options':'nosniff',
+      'referrer-policy':'same-origin',
+      'permissions-policy':'camera=(self), microphone=(self)'
+    });
+    return res.end(hostedPage);
+  }
   if (req.method === 'GET' && pathname === '/health') {
     return reply(res, 200, { ok: true, service: 'holo-room-relay', version: '18' });
   }
   const relaySecret = process.env.HOLO_RELAY_TOKEN || '';
   if (relaySecret.length < 20) return reply(res, 503, { error: 'Relay is not configured' });
-  if (!equal(req.headers['x-holo-relay-token'], relaySecret)) return reply(res, 401, { error: 'Invalid relay access token' });
+  // Hosted Holo Room uses same-origin browser requests: no relay token in the page.
+  // Local/downloaded copies must continue providing the private token.
+  const site = req.headers['sec-fetch-site'];
+  const origin = req.headers.origin;
+  const referer = req.headers.referer;
+  const hostedBrowser = site === 'same-origin'
+    && (!origin || origin === HOST_ORIGIN)
+    && (!referer || referer === HOST_ORIGIN || referer.startsWith(HOST_ORIGIN + '/'));
+  if (!hostedBrowser && !equal(req.headers['x-holo-relay-token'], relaySecret)) {
+    return reply(res, 401, { error: 'Relay access denied' });
+  }
   const route = ROUTES.map(r => ({...r, matchResult: pathname.match(r.match)})).find(r => r.matchResult);
   if (!route || req.method !== route.method) return reply(res, 404, { error: 'Unsupported route' });
   const key = route.kind === 'piapi' ? req.headers['x-api-key'] : req.headers.authorization;
