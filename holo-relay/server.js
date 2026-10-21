@@ -5,7 +5,7 @@ const crypto = require('node:crypto');
 const fs = require('node:fs');
 const path = require('node:path');
 const hostedPage = fs.readFileSync(path.join(__dirname, 'public', 'index.html'));
-const HOST_ORIGIN = 'https://holo-room-piapi-relay.onrender.com';
+const HOST_ORIGIN = process.env.HOLO_HOST_ORIGIN || 'https://holo-room-piapi-relay.onrender.com';
 
 const ROUTES = [
   { match: /^\/relay\/piapi\/upload$/, method: 'POST', target: () => 'https://upload.theapi.app/api/ephemeral_resource', kind: 'piapi' },
