@@ -826,6 +826,44 @@ window.addEventListener('beforeunload',()=>{if(st.url)URL.revokeObjectURL(st.url
  frameList();
 }
 
+
+{
+ async function meshRequest(route,key,data,binary){
+  if(!key)throw Error('Meshy Developer API key needed');
+  const base=relayBase()||location.origin;
+  const token=$('ai18relayToken').value.trim();
+  if(base!==location.origin&&!token)throw Error('External relay requires access token');
+  const headers={'content-type':'application/json',authorization:'Bearer '+key};
+  if(token)headers['x-holo-relay-token']=token;
+  const response=await fetch(base+route,{method:data?'POST':'GET',headers,body:data?JSON.stringify(data):undefined,cache:'no-store'});
+  if(!response.ok){let err;try{err=await response.json()}catch{}throw Error(err?.error||err?.message||'Meshy HTTP '+response.status)}
+  return binary?response.arrayBuffer():response.json();
+ }
+ async function meshPoll(id,key,tries=80){
+  for(let n=0;n<tries;n++){
+   const data=await meshRequest('/relay/meshy/multi/'+encodeURIComponent(id),key);
+   const status=String(data.status||'').toUpperCase();
+   if(status==='SUCCEEDED'){if(!data.model_urls?.glb)throw Error('Meshy completed with no GLB model');return data.model_urls.glb}
+   if(status==='FAILED'||status==='CANCELED')throw Error('Meshy job failed: '+(data.task_error?.message||status));
+   if(n%4===0)log('Meshy task '+id.slice(0,8)+' · '+status);
+   await wait(5000);
+  }
+  throw Error('Meshy task is still processing. Resume it with CHECK TASK without creating a new job.');
+ }
+ const previousDownload=piDownloadGLB;
+ piDownloadGLB=async function(i,key){
+  const model=st.models[i];
+  if(model?.engine!=='meshy-multi')return previousDownload(i,key);
+  if(model.localUrl)return model.localUrl;
+  const meshKey=$('ai22meshKey').value.trim();
+  const bytes=await meshRequest('/relay/meshy/model',meshKey,{task_id:model.task_id},true);
+  if(bytes.byteLength<20||new DataView(bytes).getUint32(0,true)!==0x46546c67)throw Error('Meshy returned an invalid binary GLB');
+  model.localUrl=URL.createObjectURL(new Blob([bytes],{type:'model/gltf-binary'}));
+  model.state='ready · on phone';modelsList();return model.localUrl;
+ };
+ window.HoloMesh22={request:meshRequest,poll:meshPoll};
+}
+
 engineChanged();
 })();
 
