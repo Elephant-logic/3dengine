@@ -784,7 +784,7 @@ async function showGeneratedModel(i,key){
  modeTab('models');
  showIndex(i);
 }
-$('ai17generate').onclick=async()=>{if(st.busy)return;if(!st.frames.length)return fail(Error('Extract frames from your video first'));if(!['video','cutouts'].includes(st.sourceKind))return fail(Error('Paid generation requires a real video or a real cutout; recovered jobs are for viewing only.'));if(st.sourceKind==='video'&&st.sampledFrom!==st.sourceId)return fail(Error('Video selection changed: extract fresh frames before paying.'));if(st.sourceKind==='video'&&!st.roi&&!$('ai19whole').checked)return fail(Error('Select CROP SUBJECT around the person/object, or explicitly allow the whole scene in SOURCE.'));if(!window.HoloFrames22.selectedFrames().every(i=>usableFrame(st.frames[i].image)))return fail(Error('A selected frame is blank or almost uniform. Seek to a visible moment and extract again.'));if(!$('ai17approve').checked)return fail(Error('Tick the generation approval checkbox first'));const key=$('ai17piapi').value.trim();if(!key)return fail(Error('Enter your PiAPI key locally'));const provider=$('ai17provider').value,cap=Math.min(+$('ai17limit').value,st.frames.length);let indices=window.HoloFrames22.selectedFrames().filter(i=>!st.models[i]?.task_id).slice(0,$('ai22mode').value==='single'?1:cap);if(provider==='meshy-multi')return fail(Error('Meshy Multi uses the separate multi-view route; try its selected-engine Generate option'));if(!indices.length)return log('All selected frames already have models.');if(!window.confirm('Generate '+indices.length+' '+provider+' model(s) from selected source frames? Approximate cost $'+(indices.length*(provider==='trellis2'?.10:provider==='meshy'?($('ai22texture').checked?.42:.24):.02)).toFixed(2)+' (actual provider price may differ). Approve these paid jobs?'))return;
+$('ai17generate').onclick=async()=>{if(st.busy)return;if(!st.frames.length)return fail(Error('Extract frames from your video first'));if(!['video','cutouts'].includes(st.sourceKind))return fail(Error('Paid generation requires a real video or a real cutout; recovered jobs are for viewing only.'));if(st.sourceKind==='video'&&st.sampledFrom!==st.sourceId)return fail(Error('Video selection changed: extract fresh frames before paying.'));if(st.sourceKind==='video'&&!st.roi&&!$('ai19whole').checked)return fail(Error('Select CROP SUBJECT around the person/object, or explicitly allow the whole scene in SOURCE.'));if(!window.HoloFrames22.selectedFrames().every(i=>usableFrame(st.frames[i].image)))return fail(Error('A selected frame is blank or almost uniform. Seek to a visible moment and extract again.'));if(!$('ai17approve').checked)return fail(Error('Tick the generation approval checkbox first'));const key=$('ai17piapi').value.trim();if(!key)return fail(Error('Enter your PiAPI key locally'));const provider=$('ai17provider').value,cap=Math.min(+$('ai17limit').value,st.frames.length);let indices=window.HoloFrames22.selectedFrames().filter(i=>!st.models[i]?.task_id).slice(0,$('ai22mode').value==='single'?1:cap);if(provider==='meshy-multi'||$('ai22mode').value==='multi-view')return fail(Error('Use Meshy Multi with MULTI VIEW for one reconstruction from different angles'));if(!indices.length)return log('All selected frames already have models.');if(!window.confirm('Generate '+indices.length+' '+provider+' model(s) from selected source frames? Approximate cost $'+(indices.length*(provider==='trellis2'?.10:provider==='meshy'?($('ai22texture').checked?.42:.24):.02)).toFixed(2)+' (actual provider price may differ). Approve these paid jobs?'))return;
  st.busy=true;st.cancel=false;$('ai17generate').disabled=true;$('ai17cancel').disabled=false;let done=0;try{for(const i of indices){if(st.cancel)break;log('Frame '+(i+1)+': uploading JPEG…');let imageUrl;try{imageUrl=await piUpload(st.frames[i].image,i,key)}catch(e){throw Error('Upload failed for frame '+(i+1)+': '+e.message)}if(st.cancel)break;log('Frame '+(i+1)+': requesting '+provider+'…');const task_id=await piStart(imageUrl,key,provider);st.models[i]={state:'processing',task_id,url:null,model:provider,engine:provider,time:st.frames[i].time};st.jobIds.push(task_id);modelsList();log('Frame '+(i+1)+': task '+task_id+' accepted. This may use credits.');try{const url=await piPoll(task_id,key);st.models[i].url=url;st.models[i].state='ready';log('Frame '+(i+1)+': ✓ 3D model ready');try{await showGeneratedModel(i,key)}catch(viewError){st.models[i].state='ready · tap OPEN GLB';log('Frame '+(i+1)+': model was generated, but 4D preview is not loaded — '+viewError.message)}}catch(e){st.models[i].state='task pending / check PiAPI';log('Frame '+(i+1)+': '+e.message);break}done++;$('ai17jobbar').style.width=Math.round(done/indices.length*100)+'%';modelsList()}
  if(done){modeTab('models');const latest=indices.slice().reverse().find(i=>st.models[i]?.localUrl);if(latest!==undefined){$('ai17view').value='3d';showIndex(latest)}}log('Finished: '+done+' model(s) ready. Save your manifest and download model GLBs while links work.');}
  catch(e){fail(e)}finally{st.busy=false;$('ai17generate').disabled=false;$('ai17cancel').disabled=true;st.cancel=false;$('ai17approve').checked=false}};
@@ -870,6 +870,7 @@ window.addEventListener('beforeunload',()=>{if(st.url)URL.revokeObjectURL(st.url
  $('ai17generate').onclick=async function(){
   if($('ai17provider').value!=='meshy-multi')return oldHandler.call(this);
   if(st.busy)return;
+  if($('ai22mode').value!=='multi-view')return fail(Error('Meshy Multi requires MULTI VIEW mode'));
   if(!['video','cutouts'].includes(st.sourceKind))return fail(Error('Upload real video, crop an object and extract frames first'));
   if(st.sourceKind==='video'&&st.sampledFrom!==st.sourceId)return fail(Error('Extract fresh frames from this video'));
   if(st.sourceKind==='video'&&!st.roi&&!$('ai19whole').checked)return fail(Error('Crop the object or allow whole frame in SOURCE'));
@@ -899,6 +900,31 @@ window.addEventListener('beforeunload',()=>{if(st.url)URL.revokeObjectURL(st.url
    modelsList();modeTab('models');
   }catch(e){fail(e)}
   finally{st.busy=false;$('ai17generate').disabled=false;$('ai17cancel').disabled=true;$('ai17approve').checked=false}
+ };
+}
+
+
+{
+ const oldResume=$('ai17resume').onclick;
+ $('ai17resume').onclick=async function(){
+  if($('ai17provider').value!=='meshy-multi')return oldResume.call(this);
+  if(st.busy)return;
+  const id=$('ai17resumeId').value.trim(),key=$('ai22meshKey').value.trim();
+  if(!taskIdPattern.test(id))return fail(Error('Enter your existing Meshy task ID'));
+  if(!key)return fail(Error('Enter Meshy API key to retrieve this existing job'));
+  if(!st.frames.length){
+   const c=mkcanvas(768,432),ctx=c.getContext('2d');
+   ctx.fillStyle='#071c2c';ctx.fillRect(0,0,768,432);ctx.fillStyle='#a1c6c9';ctx.font='24px monospace';ctx.fillText('RECOVER MESHY GLB',210,210);
+   st.frames=[addFrame(c,0,'recovered task')];st.models=[null];reload();
+  }
+  st.busy=true;$('ai17resume').disabled=true;
+  try{
+   log('Checking existing Meshy task '+id+'; no generation will be submitted');
+   const url=await window.HoloMesh22.poll(id,key);
+   const i=st.index;st.models[i]={url,engine:'meshy-multi',task_id:id,state:'ready · recovered'};
+   modelsList();await showGeneratedModel(i,$('ai17piapi').value.trim());
+   log('Recovered Meshy multi-image GLB without another paid generation.');
+  }catch(e){fail(e)}finally{st.busy=false;$('ai17resume').disabled=false}
  };
 }
 
