@@ -87,6 +87,9 @@ const ROUTES = [
   { match: /^\/relay\/piapi\/task$/, method: 'POST', target: () => 'https://api.piapi.ai/api/v1/task', kind: 'piapi' },
   { match: /^\/relay\/piapi\/glb$/, method: 'POST', target: () => '', kind: 'piapi-glb' },
   { match: /^\/relay\/piapi\/task\/([a-zA-Z0-9-]{12,120})$/, method: 'GET', target: m => 'https://api.piapi.ai/api/v1/task/' + encodeURIComponent(m[1]), kind: 'piapi' },
+  { match: /^\/relay\/meshy\/multi$/, method: 'POST', target: () => 'https://api.meshy.ai/openapi/v1/multi-image-to-3d', kind: 'meshy' },
+  { match: /^\/relay\/meshy\/multi\/([a-zA-Z0-9-]{12,120})$/, method: 'GET', target: m => 'https://api.meshy.ai/openapi/v1/multi-image-to-3d/'+encodeURIComponent(m[1]), kind: 'meshy' },
+  { match: /^\/relay\/meshy\/model$/, method: 'POST', target: () => null, kind: 'meshy-model' },
   { match: /^\/relay\/openai\/responses$/, method: 'POST', target: () => 'https://api.openai.com/v1/responses', kind: 'openai' }
 ];
 const MAX_BYTES = 13 * 1024 * 1024;
@@ -159,7 +162,7 @@ async function handle(req, res) {
     return res.end(hostedPage);
   }
   if (req.method === 'GET' && pathname === '/health') {
-    return reply(res, 200, { ok: true, service: 'holo-room-relay', version: '18' });
+    return reply(res, 200, { ok: true, service: 'holo-room-relay', version: '22', models:['trellis','trellis2','meshy','meshy-multi'] });
   }
   const relaySecret = process.env.HOLO_RELAY_TOKEN || '';
   if (relaySecret.length < 20) return reply(res, 503, { error: 'Relay is not configured' });
@@ -178,7 +181,7 @@ async function handle(req, res) {
   if (!route || req.method !== route.method) return reply(res, 404, { error: 'Unsupported route' });
   const key = (route.kind.startsWith('piapi') || route.kind === 'model') ? req.headers['x-api-key'] : req.headers.authorization;
   if (typeof key !== 'string' || !key.trim()) return reply(res, 400, { error: 'Provider key is missing' });
-  if (route.kind === 'openai' && !/^Bearer\s+\S+$/i.test(key)) {
+  if ((route.kind === 'openai' || route.kind.startsWith('meshy')) && !/^Bearer\s+\S+$/i.test(key)) {
     return reply(res, 400, { error: 'Invalid OpenAI authorization' });
   }
   try {
@@ -186,6 +189,36 @@ async function handle(req, res) {
     if (body?.length) {
       try { JSON.parse(body.toString('utf8')); }
       catch { return reply(res, 400, { error: 'Invalid JSON body' }); }
+    }
+    if (route.kind === 'meshy-model') {
+      const {task_id:taskId}=JSON.parse(body?.toString('utf8')||'{}');
+      if(typeof taskId!=='string'|| !/^[a-zA-Z0-9-]{12,120}$/.test(taskId))return reply(res,400,{error:'Valid Meshy task ID required'});
+      const ac=new AbortController(),timer=setTimeout(()=>ac.abort(),100000);
+      try{
+        const status=await fetch('https://api.meshy.ai/openapi/v1/multi-image-to-3d/'+encodeURIComponent(taskId),{
+          headers:{authorization:key,accept:'application/json'},signal:ac.signal,redirect:'error'
+        });
+        if(!status.ok)return reply(res,status.status,{error:'Meshy task lookup failed (HTTP '+status.status+')'});
+        const task=await status.json();
+        if(String(task.status||'').toUpperCase()!=='SUCCEEDED')return reply(res,409,{error:'Meshy task not yet complete',status:task.status});
+        const modelUrl=task.model_urls?.glb;
+        if(!modelUrl)return reply(res,404,{error:'Meshy task has no GLB output'});
+        const u=safeModelURL(modelUrl);
+        if(u.hostname!=='assets.meshy.ai')return reply(res,502,{error:'Unexpected Meshy model host'});
+        const model=await fetchModelURL(modelUrl,ac.signal);
+        res.writeHead(200,{...headers,'content-type':'model/gltf-binary','content-length':model.length,'x-holo-model-valid':'glb-v2'});
+        res.end(model);
+      }catch(e){reply(res,e.name==='AbortError'?504:502,{error:'Meshy GLB download failed: '+(e.name==='AbortError'?'timeout':e.message)})}
+      finally{clearTimeout(timer)}
+      return;
+    }
+    if (route.kind === 'meshy' && req.method === 'POST') {
+      const payload=JSON.parse(body.toString('utf8'));
+      if(!Array.isArray(payload.image_urls)||payload.image_urls.length<2||payload.image_urls.length>4||
+        payload.image_urls.some(x=>typeof x!=='string'||!/^data:image\/(jpeg|png|webp);base64,[A-Za-z0-9+/=]+$/.test(x))) {
+        return reply(res,400,{error:'Meshy multi needs 2–4 JPEG/PNG/WebP data images of one object'});
+      }
+      if(payload.target_formats?.join(',')!=='glb')return reply(res,400,{error:'GLB is required'});
     }
     if (route.kind === 'piapi-glb') {
       // Resolve the GLB URL from the authenticated PiAPI task. No arbitrary URLs.
