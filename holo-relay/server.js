@@ -154,7 +154,7 @@ async function handle(req, res) {
   }
   const route = ROUTES.map(r => ({...r, matchResult: pathname.match(r.match)})).find(r => r.matchResult);
   if (!route || req.method !== route.method) return reply(res, 404, { error: 'Unsupported route' });
-  const key = route.kind.startsWith('piapi') ? req.headers['x-api-key'] : req.headers.authorization;
+  const key = (route.kind.startsWith('piapi') || route.kind === 'model') ? req.headers['x-api-key'] : req.headers.authorization;
   if (typeof key !== 'string' || !key.trim()) return reply(res, 400, { error: 'Provider key is missing' });
   if (route.kind === 'openai' && !/^Bearer\s+\S+$/i.test(key)) {
     return reply(res, 400, { error: 'Invalid OpenAI authorization' });
