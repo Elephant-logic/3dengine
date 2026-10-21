@@ -10,6 +10,7 @@ const HOST_ORIGIN = process.env.HOLO_HOST_ORIGIN || 'https://holo-room-piapi-rel
 const ROUTES = [
   { match: /^\/relay\/piapi\/upload$/, method: 'POST', target: () => 'https://upload.theapi.app/api/ephemeral_resource', kind: 'piapi' },
   { match: /^\/relay\/piapi\/task$/, method: 'POST', target: () => 'https://api.piapi.ai/api/v1/task', kind: 'piapi' },
+  { match: /^\/relay\/piapi\/glb$/, method: 'POST', target: () => '', kind: 'piapi-glb' },
   { match: /^\/relay\/piapi\/task\/([a-zA-Z0-9-]{12,120})$/, method: 'GET', target: m => 'https://api.piapi.ai/api/v1/task/' + encodeURIComponent(m[1]), kind: 'piapi' },
   { match: /^\/relay\/openai\/responses$/, method: 'POST', target: () => 'https://api.openai.com/v1/responses', kind: 'openai' }
 ];
@@ -78,7 +79,7 @@ async function handle(req, res) {
   }
   const route = ROUTES.map(r => ({...r, matchResult: pathname.match(r.match)})).find(r => r.matchResult);
   if (!route || req.method !== route.method) return reply(res, 404, { error: 'Unsupported route' });
-  const key = route.kind === 'piapi' ? req.headers['x-api-key'] : req.headers.authorization;
+  const key = route.kind.startsWith('piapi') ? req.headers['x-api-key'] : req.headers.authorization;
   if (typeof key !== 'string' || !key.trim()) return reply(res, 400, { error: 'Provider key is missing' });
   if (route.kind === 'openai' && !/^Bearer\s+\S+$/i.test(key)) {
     return reply(res, 400, { error: 'Invalid OpenAI authorization' });
@@ -88,6 +89,59 @@ async function handle(req, res) {
     if (body?.length) {
       try { JSON.parse(body.toString('utf8')); }
       catch { return reply(res, 400, { error: 'Invalid JSON body' }); }
+    }
+    if (route.kind === 'piapi-glb') {
+      // Resolve the GLB URL from the authenticated PiAPI task. No arbitrary URLs.
+      const taskId = JSON.parse(body.toString('utf8')).task_id;
+      if (typeof taskId !== 'string' || !/^[a-zA-Z0-9-]{12,120}$/.test(taskId)) {
+        return reply(res, 400, { error: 'A valid PiAPI task ID is required' });
+      }
+      const check = await fetch('https://api.piapi.ai/api/v1/task/' + encodeURIComponent(taskId), {
+        headers: { 'x-api-key': key }, redirect: 'error', signal: AbortSignal.timeout(20000)
+      });
+      if (!check.ok) return reply(res, check.status, { error: 'Cannot read that PiAPI task' });
+      const taskResult = await check.json();
+      const task = taskResult.data || taskResult;
+      const modelFile = task.output?.model_file || task.output?.model_url || task.output?.glb;
+      if (task.status !== 'completed' || typeof modelFile !== 'string') {
+        return reply(res, 409, { error: 'Task is not completed or has no GLB file' });
+      }
+      let modelURL;
+      try { modelURL = new URL(modelFile); }
+      catch { return reply(res, 502, { error: 'Invalid PiAPI GLB URL' }); }
+      if (modelURL.protocol !== 'https:' || modelURL.hostname !== 'img.theapi.app' ||
+          modelURL.port || modelURL.username || modelURL.password ||
+          !modelURL.pathname.toLowerCase().endsWith('.glb')) {
+        return reply(res, 502, { error: 'GLB URL host or format not allowed' });
+      }
+      const upstreamGLB = await fetch(modelURL.href, { redirect: 'error', signal: AbortSignal.timeout(90000) });
+      if (!upstreamGLB.ok || !upstreamGLB.body) {
+        return reply(res, 502, { error: 'PiAPI GLB could not be downloaded' });
+      }
+      const maxGLB = 64 * 1024 * 1024;
+      const declared = Number(upstreamGLB.headers.get('content-length') || 0);
+      if (declared > maxGLB) {
+        await upstreamGLB.body.cancel();
+        return reply(res, 413, { error: 'GLB exceeds 64 MB phone preview limit. Use model link.' });
+      }
+      res.writeHead(200, {
+        'content-type': 'model/gltf-binary',
+        'cache-control': 'no-store',
+        'x-content-type-options': 'nosniff',
+        'access-control-allow-origin': '*'
+      });
+      let received = 0;
+      try {
+        for await (const chunk of upstreamGLB.body) {
+          received += chunk.length;
+          if (received > maxGLB) throw Error('GLB exceeds 64 MB limit');
+          if (!res.write(chunk)) await new Promise(resolve => res.once('drain', resolve));
+        }
+        res.end();
+      } catch {
+        res.destroy();
+      }
+      return;
     }
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), 120000);
