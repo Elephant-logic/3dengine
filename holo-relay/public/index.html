@@ -802,6 +802,30 @@ function saveFile(text,name,type='application/json'){const url=URL.createObjectU
 $('ai17manifest').onclick=()=>saveFile(JSON.stringify({app:'Holo Room V17',created:new Date().toISOString(),note:'GLB outputs represent AI-inferred geometry. Review alignment; this manifest does not include API keys or source images.',frames:st.frames.map((f,i)=>({frame:i+1,time:f.time,origin:f.origin,model:st.models[i]||null}))},null,2),'holo_v17_3d_timeline.json');
 $('ai17analyse').onclick=async()=>{const key=$('ai17openai').value.trim();if(!key)return $('ai17gptresult').textContent='Enter your OpenAI API key locally.';if(!$('ai17gptapprove').checked)return $('ai17gptresult').textContent='Explicit approval is required for the direct API request.';const f=st.frames[st.index];if(!f)return $('ai17gptresult').textContent='Extract frames first.';const b=$('ai17analyse');b.disabled=true;$('ai17gptresult').textContent='Analysing image…';try{const data=await api('https://api.openai.com/v1/responses',{'Content-Type':'application/json','Authorization':'Bearer '+key},{model:$('ai17gptmodel').value.trim()||'gpt-4.1-mini',store:false,max_output_tokens:240,input:[{role:'user',content:[{type:'input_text',text:'Describe the visible main subject, motion or pose clues, and possible 3D reconstruction difficulties (occlusion, blur, missing views) for this one video frame. Avoid asserting hidden geometry as factual. Be concise.'},{type:'input_image',image_url:f.image.toDataURL('image/jpeg',.65),detail:'low'}]}]});$('ai17gptresult').textContent=data.output_text||data.output?.flatMap(x=>x.content||[]).filter(x=>x.type==='output_text').map(x=>x.text).join('\n')||JSON.stringify(data).slice(0,900)}catch(e){$('ai17gptresult').textContent=e.message}finally{b.disabled=false;$('ai17gptapprove').checked=false}};
 window.addEventListener('beforeunload',()=>{if(st.url)URL.revokeObjectURL(st.url);st.models.forEach(m=>{if(m?.local&&m.url)URL.revokeObjectURL(m.url)})});
+
+{ 
+ $('ai17sample').insertAdjacentHTML('afterend','<div class="small"><b>SELECT VIDEO FRAMES FOR 3D</b></div><div class="arow"><button id="ai22one">1 FRAME</button><button id="ai22three">3 FRAMES</button><button id="ai22five">5 FRAMES</button><button id="ai22all">ALL</button></div><div id="ai22frameList" class="framethumbs" style="max-height:150px;overflow:auto"></div><div id="ai22frameNote" class="small">Extract frames first</div>');
+ let source=null,chosen=new Set();
+ const selectedFrames=()=>[...chosen].filter(n=>n<st.frames.length).sort((a,b)=>a-b);
+ function frameList(){
+  if(source!==st.frames){source=st.frames;chosen=new Set(st.frames.map((_,i)=>i))}
+  const area=$('ai22frameList');area.replaceChildren();
+  st.frames.forEach((f,i)=>{
+   const wrap=document.createElement('label'),check=document.createElement('input'),img=document.createElement('img'),txt=document.createElement('span');
+   wrap.style.cssText='display:flex;align-items:center;gap:3px;border:1px solid #245c62;border-radius:5px;margin:3px;padding:4px';
+   check.type='checkbox';check.checked=chosen.has(i);img.src=f.preview;img.style.cssText='height:35px;width:45px;object-fit:contain';txt.textContent=String(i+1);
+   check.onchange=()=>{if(check.checked)chosen.add(i);else chosen.delete(i);showCount()};
+   wrap.append(check,img,txt);area.append(wrap);
+  });showCount();
+ }
+ function showCount(){$('ai22frameNote').textContent=selectedFrames().length+' of '+st.frames.length+' frames selected. PER FRAME is animation; MULTI VIEW is one object seen from different angles.'}
+ function pickN(n){if(!st.frames.length)return fail(Error('Extract frames first'));const total=Math.min(n,st.frames.length);chosen=new Set(Array.from({length:total},(_,i)=>Math.round(i*(st.frames.length-1)/Math.max(1,total-1))));frameList()}
+ $('ai22one').onclick=()=>pickN(1);$('ai22three').onclick=()=>pickN(3);$('ai22five').onclick=()=>pickN(5);$('ai22all').onclick=()=>pickN(st.frames.length);
+ const previousReload=reload;reload=function(){previousReload();frameList()};
+ window.HoloFrames22={selectedFrames:()=>selectedFrames(),refresh:()=>frameList()};
+ frameList();
+}
+
 engineChanged();
 })();
 
